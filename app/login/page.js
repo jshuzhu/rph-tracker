@@ -218,7 +218,7 @@ export default function LoginPage() {
                   </span>
                   <input 
                     type="text" 
-                    placeholder="Contoh: Cikgu Ahmad Bin Yusof" 
+                    placeholder="Contoh: Ahmad Bin Yusof" 
                     className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2.5 pl-10 pr-4 text-xs focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500/20 placeholder-slate-400 dark:placeholder-slate-700 transition-all" 
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)} 
