@@ -35,13 +35,21 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# Generated PDFs and images
+# Generated PDFs and temporary files
 *.pdf
-*.png
-*.jpg
-*.jpeg
 *.ps1
 *.sql
 .system_generated/
 /scratch/
 /brain/
+
+# Ignore images generally (like screenshots in root)
+*.png
+*.jpg
+*.jpeg
+
+# BUT allow public assets images to be committed
+!public/assets/**/*.png
+!public/assets/**/*.jpg
+!public/assets/**/*.jpeg
+!public/assets/**/*.svg
