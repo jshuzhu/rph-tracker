@@ -10,8 +10,12 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Supabase REST API
+      - name: Ping Supabase Auth API (Login Test)
         run: |
-          curl -i -X GET "${{ secrets.SUPABASE_URL }}/rest/v1/school_settings?select=id" \
+          curl -i -X POST "${{ secrets.SUPABASE_URL }}/auth/v1/token?grant_type=password" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}"
+            -H "Content-Type: application/json" \
+            -d '{
+              "email": "cikgu2@test.edu.my",
+              "password": "Test@1234"
+            }'
