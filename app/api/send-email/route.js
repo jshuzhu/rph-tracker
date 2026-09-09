@@ -1,3 +1,4 @@
+export const runtime = 'edge';
 import { Resend } from 'resend';
 
 export async function POST(request) {
