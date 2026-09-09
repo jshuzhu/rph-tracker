@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getSession, logout } from '@/lib/auth';
+import { getSession, logout } from '../../../lib/auth';
 
 export const runtime = 'edge';
 
