@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { getRequestContext } from '@cloudflare/next-on-pages';
 import { hashPassword, signToken } from '@/lib/auth-edge';
 
-export const runtime = 'edge';
 
 export async function POST(req) {
   try {
