@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
-import { getSession, logout } from '@/lib/auth';
 
 export const runtime = 'edge';
 
 export async function POST() {
-  await logout();
-  return NextResponse.json({ success: true });
+  const response = NextResponse.json({ success: true });
+  response.cookies.set('rph_session', '', { 
+    httpOnly: true, 
+    secure: true, 
+    path: '/',
+    maxAge: 0
+  });
+  return response;
 }

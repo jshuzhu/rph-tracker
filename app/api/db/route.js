@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { getSession } from '@/lib/auth';
+import { getSessionFromRequest } from '@/lib/auth-edge';
 
 export const runtime = 'edge';
 
 export async function POST(req) {
   try {
-    const session = await getSession();
+    const session = await getSessionFromRequest(req);
     if (!session) {
       return NextResponse.json({ data: null, error: { message: 'Unauthorized' } }, { status: 401 });
     }
