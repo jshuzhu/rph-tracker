@@ -42,86 +42,53 @@ export default function LoginPage() {
           return;
         }
 
-        // 2. Perform Supabase Sign Up
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/` : undefined,
-            data: {
-              full_name: fullName,
-              role: role,
-              title: role === 'reviewer' ? title : (role === 'admin' ? 'Admin' : 'Guru'),
-            },
-          },
+        // 2. Perform Custom API Sign Up
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            fullName,
+            role,
+            title: role === 'reviewer' ? title : (role === 'admin' ? 'Admin' : 'Guru')
+          })
         });
 
-        if (error) {
-          setErrorMsg('Ralat Pendaftaran: ' + error.message);
+        const data = await res.json();
+
+        if (!res.ok) {
+          setErrorMsg('Ralat Pendaftaran: ' + (data.error || 'Gagal mendaftar'));
           setIsLoading(false);
         } else {
-          if (data.session) {
-            setSuccessMsg('Pendaftaran berjaya! Membuka portal anda...');
-          } else {
-            setSuccessMsg('Pendaftaran berjaya! Sila semak peti masuk e-mel anda untuk pautan pengesahan akaun.');
-            setIsLoading(false);
-            setFullName('');
-            setEmail('');
-            setPassword('');
-            setAdminPasscode('');
-          }
+          setSuccessMsg('Pendaftaran berjaya! Membuka portal anda...');
+          window.location.href = '/dashboard';
         }
       } else if (authMode === 'forgot') {
-        // Perform Supabase Password Reset Request
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/reset-password` : undefined,
-        });
-
-        if (error) {
-          setErrorMsg('Ralat Penghantaran: ' + error.message);
-        } else {
-          setSuccessMsg('E-mel untuk set semula kata laluan telah dihantar. Sila semak peti masuk anda.');
-          setEmail('');
-        }
+        // Password Reset Request (Not fully implemented in custom auth yet)
+        setSuccessMsg('Ciri set semula kata laluan sedang diselenggara untuk sistem baharu.');
         setIsLoading(false);
       } else {
-        // Perform Supabase Login
+        // Perform Custom API Login
         let processedEmail = email;
         let processedPassword = password;
-        if (email.trim().toLowerCase() === 'adminsekolah' && (password === '0000' || password === '000')) {
-          processedEmail = 'adminsekolah@sekolah.com';
-          processedPassword = '0000';
-        }
         
-        let { data, error } = await supabase.auth.signInWithPassword({
-          email: processedEmail,
-          password: processedPassword,
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: processedEmail, password: processedPassword })
         });
-
-        // Fallback to the old default credentials if the new database schema has not been run yet
-        if (error && email.trim().toLowerCase() === 'adminsekolah' && (password === '0000' || password === '000')) {
-          const fallback = await supabase.auth.signInWithPassword({
-            email: 'admin@sekolah.com',
-            password: 'password123',
-          });
-          if (!fallback.error) {
-            data = fallback.data;
-            error = null;
-          }
-        }
-
-        if (error) {
-          let malaysianError = error.message;
-          if (error.message.includes('Invalid login credentials')) {
-            malaysianError = 'E-mel atau kata laluan tidak sah. Sila cuba lagi.';
-          } else if (error.message.includes('Email not confirmed')) {
-            malaysianError = 'E-mel anda belum disahkan. Sila semak peti masuk anda.';
-          }
-          setErrorMsg(malaysianError);
+        
+        const data = await res.json();
+        
+        if (!res.ok) {
+          setErrorMsg(data.error || 'Maklumat log masuk salah.');
           setIsLoading(false);
-        } else {
-          setSuccessMsg('Log masuk berjaya! Membuka portal...');
+          return;
         }
+
+        setSuccessMsg('Log masuk berjaya! Sedang memuatkan portal...');
+        window.location.href = '/dashboard';
       }
     } catch (err) {
       console.error('Authentication error:', err);

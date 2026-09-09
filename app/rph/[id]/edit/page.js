@@ -161,19 +161,19 @@ export default function EditRph({ params }) {
 
   // Slicer lists filtered hierarchically
   const tajukOptions = Array.from(new Set(
-    curriculumData.filter(item => item.minggu === selectedWeek).map(item => item.tajuk).filter(Boolean)
+    curriculumData.map(item => item.tajuk).filter(Boolean)
   ));
 
   const unitOptions = Array.from(new Set(
-    curriculumData.filter(item => item.minggu === selectedWeek && item.tajuk === selectedTajuk).map(item => item.unit).filter(Boolean)
+    curriculumData.filter(item => item.tajuk === selectedTajuk).map(item => item.unit).filter(Boolean)
   ));
 
   const contentStandardsOptions = Array.from(new Set(
-    curriculumData.filter(item => item.minggu === selectedWeek && item.tajuk === selectedTajuk && item.unit === selectedUnit).map(item => item.standard_kandungan).filter(Boolean)
+    curriculumData.filter(item => item.tajuk === selectedTajuk && (!item.unit || item.unit === selectedUnit)).map(item => item.standard_kandungan).filter(Boolean)
   ));
 
   const learningStandardsOptions = curriculumData
-    .filter(item => item.minggu === selectedWeek && item.tajuk === selectedTajuk && item.unit === selectedUnit && contentStandards.includes(item.standard_kandungan))
+    .filter(item => item.tajuk === selectedTajuk && (!item.unit || item.unit === selectedUnit) && contentStandards.includes(item.standard_kandungan))
     .map(item => item.standard_pembelajaran)
     .filter(Boolean);
 
