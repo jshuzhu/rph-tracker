@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { hashPassword, signToken } from '../../../lib/auth';
+import { hashPassword, signToken } from '@/lib/auth';
 
 export const runtime = 'edge';
 
