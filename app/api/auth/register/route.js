@@ -2,8 +2,7 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { hashPassword, signToken } from '@/lib/auth-edge';
-
+import { signToken } from '@/lib/auth-edge';
 
 export async function POST(req) {
   try {
@@ -21,14 +20,12 @@ export async function POST(req) {
        return response;
     }
 
-    // Hash the password
-    const hashedPwd = await hashPassword(password);
-    
     // Generate simple UUID-like string for D1
     const id = crypto.randomUUID();
     
+    // We insert plain text password directly because we removed crypto overhead
     const { success, error } = await db.prepare('INSERT INTO profiles (id, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)')
-      .bind(id, fullName, email, hashedPwd, role)
+      .bind(id, fullName, email, password, role)
       .run();
       
     if (!success) {

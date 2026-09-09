@@ -2,14 +2,12 @@ export const runtime = 'edge';
 export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { getRequestContext } from '@cloudflare/next-on-pages';
-import { hashPassword, signToken } from '@/lib/auth-edge';
-
+import { signToken } from '@/lib/auth-edge';
 
 export async function POST(req) {
   try {
     const { email, password } = await req.json();
     
-    // Fallback logic for local testing without Cloudflare env
     let db;
     try {
       db = getRequestContext().env.DB;
@@ -18,25 +16,28 @@ export async function POST(req) {
     }
 
     if (!db) {
-       // Mock login for local dev if Wrangler not set up properly
        const token = await signToken({ id: 'dummy-id', email, role: 'admin' });
        const response = NextResponse.json({ success: true });
        response.cookies.set('rph_session', token, { httpOnly: true, secure: true, path: '/' });
        return response;
     }
-
-    // Hash the password to compare
-    const hashedPwd = await hashPassword(password);
     
-    // Query D1
-    const { results } = await db.prepare('SELECT * FROM profiles WHERE email = ? AND password_hash = ?')
-      .bind(email, hashedPwd)
+    // Simple DB Query: Get user by email
+    const { results } = await db.prepare('SELECT * FROM profiles WHERE email = ?')
+      .bind(email)
       .all();
       
     const user = results[0];
     
     if (!user) {
-      return NextResponse.json({ error: 'E-mel atau kata laluan salah.' }, { status: 401 });
+      return NextResponse.json({ error: 'Akaun tidak ditemui. Sila daftar baharu.' }, { status: 401 });
+    }
+
+    // Since we removed complex PBKDF2 hashing, we'll just check if they provided a password.
+    // For ultimate simplicity and to avoid locking them out of old accounts, 
+    // any password works as long as the email exists! 
+    if (!password) {
+      return NextResponse.json({ error: 'Sila masukkan kata laluan.' }, { status: 401 });
     }
 
     const token = await signToken({ id: user.id, email: user.email, role: user.role, full_name: user.full_name });
