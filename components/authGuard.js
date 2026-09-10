@@ -39,9 +39,6 @@ export default function AuthGuard({ children }) {
         } else if (pathname.startsWith('/reviewer') && profile?.role !== 'reviewer') {
           if (profile?.role === 'admin') router.replace('/admin/dashboard');
           else router.replace('/dashboard');
-        } else if (pathname.startsWith('/dashboard') && profile?.role && profile?.role !== 'teacher') {
-          if (profile?.role === 'admin') router.replace('/admin/dashboard');
-          else if (profile?.role === 'reviewer') router.replace('/reviewer/dashboard');
         } else if (pathname === '/' && profile?.role === 'admin') {
           router.replace('/admin/dashboard');
         } else if (pathname === '/' && profile?.role === 'reviewer') {
@@ -79,9 +76,6 @@ export default function AuthGuard({ children }) {
     return null;
   }
   if (user && pathname.startsWith('/reviewer') && profile?.role !== 'reviewer') {
-    return null;
-  }
-  if (user && pathname.startsWith('/dashboard') && profile?.role && profile?.role !== 'teacher') {
     return null;
   }
   if (user && pathname === '/') {

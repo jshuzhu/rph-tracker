@@ -135,6 +135,11 @@ export default function TeacherQueue() {
     <div className="flex-grow bg-slate-950 text-slate-100 py-6 px-4">
       <div className="max-w-4xl mx-auto space-y-4">
         
+        <div className="flex items-center gap-2 mb-2">
+          <Link href="/reviewer/rph" className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2 px-4 rounded-xl text-xs transition">
+            Kembali
+          </Link>
+        </div>
         <div className="flex items-center justify-between bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl">
           <div>
             <h1 className="text-xl font-extrabold text-white">Senarai RPH Saya</h1>

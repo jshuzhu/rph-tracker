@@ -68,11 +68,11 @@ export default function GuruDashboard() {
         
         
         {/* Back to Portal Button for Admin/Reviewers */}
-        {profile?.role !== 'teacher' && (
+        {(true) && (
           <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-4 text-center">
             <span className="block text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-2">Anda Berada Di Mod Guru</span>
             <Link 
-              href={profile?.role === 'admin' ? '/admin/dashboard' : '/reviewer/dashboard'} 
+              href="/admin/dashboard" 
               className="inline-block bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold py-2 px-6 rounded-xl transition shadow-lg shadow-amber-600/20"
             >
               Kembali ke Portal Asal
@@ -140,7 +140,7 @@ export default function GuruDashboard() {
               </Link>
               
               <Link 
-                href="/dashboard/queue" 
+                href="/admin/rph/queue" 
                 className="flex flex-col items-center justify-center p-4 bg-slate-800 border border-slate-700 text-white rounded-2xl shadow-lg hover:bg-slate-700 active:scale-95 transition text-center"
               >
                 <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center mb-2">

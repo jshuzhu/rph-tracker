@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../../lib/authProvider';
-import { supabase } from '../../../lib/supabaseClient';
+import { db } from '../../../lib/firebase';
+import { collection, query, getDocs, doc, orderBy, limit, updateDoc, getDoc } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 import { calculateActiveWeek } from '../../../lib/dateUtils';
 
@@ -11,90 +12,82 @@ export default function ReviewerDashboard() {
   const { user, profile } = useAuth();
   const router = useRouter();
 
-  const [stats, setStats] = useState({
-    pending: 0,
-    approved: 0,
-    notApproved: 0
-  });
-  const [schoolSettings, setSchoolSettings] = useState({
-    activeSession: '2026',
-    activeWeek: 1
-  });
+  const [allRph, setAllRph] = useState([]);
+  const [stats, setStats] = useState({ pending: 0, approved: 0, notApproved: 0 });
+  
+  const [sessionsMap, setSessionsMap] = useState([]);
+  const [selectedSession, setSelectedSession] = useState('All');
+  
+  const [systemWeek, setSystemWeek] = useState(1);
+  const [selectedWeek, setSelectedWeek] = useState('All');
+  const [isSessionExpired, setIsSessionExpired] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedTitle, setSelectedTitle] = useState('');
+  const [mounted, setMounted] = useState(false);
+
+  // Title Modal States
   const [titleModalOpen, setTitleModalOpen] = useState(false);
+  const [selectedTitle, setSelectedTitle] = useState('');
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
 
-  useEffect(() => {
-    if (profile?.role === 'reviewer' && (!profile?.title || profile?.title === 'Penyemak' || profile?.title === 'Reviewer')) {
-      setTitleModalOpen(true);
-    }
-  }, [profile]);
-
-  const handleSaveTitle = async () => {
-    if (!selectedTitle) return;
-    setIsLoading(true);
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ title: selectedTitle, updated_at: new Date().toISOString() })
-        .eq('id', user.id);
-
-      if (error) throw error;
-      setTitleModalOpen(false);
-      window.location.reload();
-    } catch (err) {
-      console.error("Gagal menetapkan jawatan:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  useEffect(() => { 
+    setMounted(true); 
+  }, []);
 
   useEffect(() => {
     if (user && profile) {
-      if (profile.role !== 'reviewer' && profile.role) {
+      if (profile.role !== 'reviewer') {
         router.push('/');
       } else {
-        fetchStats();
+        if (!profile.title || profile.title === 'Penyemak' || profile.title === 'Reviewer') {
+          setTitleModalOpen(true);
+        }
+        fetchData();
       }
     }
   }, [user, profile]);
 
-  const fetchStats = async () => {
+  const fetchData = async () => {
     try {
       setIsLoading(true);
-      const { data, error } = await supabase
-        .from('rph_submissions')
-        .select('status')
-        .eq('is_deleted', false);
+      
+      // Fetch system settings for default session and week
+      let currentSesi = '';
+      let currentWk = 1;
+      const sDoc = await getDoc(doc(db, 'school_settings', '1'));
+      if (sDoc.exists()) {
+        const data = sDoc.data();
+        currentSesi = data.session_name || '';
 
-      if (error) throw error;
+        currentWk = calculateActiveWeek(data.session_start_date, data.session_end_date);
+        setSystemWeek(currentWk);
+        setSelectedSession(currentSesi || 'All');
+        setSelectedWeek('All');
 
-      const { data: settingsData } = await supabase
-        .from('school_settings')
-        .select('active_session, active_week, session_start_date, session_end_date, holiday_weeks')
-        .eq('id', 1)
-        .single();
-      if (settingsData) {
-        const calculatedWeek = calculateActiveWeek(
-          settingsData.session_start_date,
-          settingsData.session_end_date,
-          settingsData.holiday_weeks || 0
-        );
-        setSchoolSettings({
-          activeSession: settingsData.active_session || '2026',
-          activeWeek: calculatedWeek
-        });
+        if (data.session_end_date) {
+          const endDate = new Date(data.session_end_date);
+          endDate.setHours(23, 59, 59, 999);
+          if (new Date() > endDate) {
+            setIsSessionExpired(true);
+          }
+        }
+
       }
 
-      const pending = data?.filter(r => r.status === 'Pending').length || 0;
-      const approved = data?.filter(r => r.status === 'Approved').length || 0;
-      const notApproved = data?.filter(r => r.status === 'Not Approved').length || 0;
+      const q = query(collection(db, 'rph_submissions'), orderBy('TIMPESTAMP_SEND', 'desc'), limit(1500)); 
+      const snap = await getDocs(q);
+      const data = snap.docs.map(d => d.data());
+      
+      setAllRph(data);
 
-      setStats({
-        pending,
-        approved,
-        notApproved
+      // Extract unique sessions
+      const sessions = new Set();
+      if (currentSesi) sessions.add(currentSesi);
+      data.forEach(r => {
+        if (r.Session_Name) sessions.add(r.Session_Name);
       });
+      setSessionsMap(Array.from(sessions).sort());
+
     } catch (e) {
       console.error(e);
     } finally {
@@ -102,137 +95,159 @@ export default function ReviewerDashboard() {
     }
   };
 
-  if (!user || profile?.role === 'admin' || profile?.role === 'teacher') {
-    return (
-      <div className="flex-grow flex items-center justify-center p-12 text-slate-400 font-bold text-xs">
-        Memverifikasi akses keselamatan...
-      </div>
-    );
+  useEffect(() => {
+    // Filter stats based on session and week
+    let filtered = allRph;
+    if (selectedSession !== 'All') {
+      filtered = filtered.filter(r => r.Session_Name === selectedSession || (!r.Session_Name && selectedSession === sessionsMap[0])); // fallback for old data without session
+    }
+    if (selectedWeek !== 'All') {
+      filtered = filtered.filter(r => String(r.Minggu) === selectedWeek);
+    }
+
+    const pending = filtered.filter(r => r.Status_Id === '80').length;
+    const approved = filtered.filter(r => r.Status_Id === '81').length;
+    const notApproved = filtered.filter(r => r.Status_Id === '83').length;
+
+    setStats({ pending, approved, notApproved });
+  }, [allRph, selectedSession, selectedWeek, sessionsMap]);
+
+  const handleSaveTitle = async () => {
+    if (!selectedTitle) return;
+    setIsSavingTitle(true);
+    try {
+      await updateDoc(doc(db, 'users', user.id), {
+        title: selectedTitle
+      });
+      setTitleModalOpen(false);
+      window.location.reload(); 
+    } catch (err) {
+      console.error(err);
+      alert('Gagal menetapkan jawatan.');
+    } finally {
+      setIsSavingTitle(false);
+    }
+  };
+
+  if (!mounted) return <div className="flex-grow bg-slate-950 text-slate-100 py-6 px-4 flex items-center justify-center"><div className="animate-pulse text-slate-500 text-sm font-bold">Memuatkan antaramuka...</div></div>;
+
+  if (!user || profile?.role !== 'reviewer') {
+    return <div className="p-12 text-center text-slate-400">Memverifikasi akses...</div>;
   }
 
   return (
-    <div className="flex-grow bg-transparent text-slate-100 py-8 px-4 sm:px-6">
-      <div className="max-w-md mx-auto space-y-6">
-        
-        {/* Welcome Header */}
-        <div className="bg-slate-900 text-white p-6 rounded-[2rem] shadow-xl border border-purple-900/10">
-          <span className="text-[9px] font-bold text-purple-400 uppercase tracking-widest bg-purple-950/60 px-3 py-1 rounded-full border border-purple-900/40">
-            Portal Penyemak
-          </span>
-          <h1 className="text-xl font-extrabold tracking-tight mt-2.5">
-            Selamat Kembali,
-          </h1>
-          <p className="text-sm font-bold text-white underline mt-0.5">
-            {profile?.full_name}
-          </p>
-          <div className="mt-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>[Jawatan : {
-              profile?.title === 'GB' ? 'Guru Besar' :
-              profile?.title === 'PKP' ? 'PK Pentadbiran' :
-              profile?.title === 'PK HEM' ? 'PK HEM' :
-              profile?.title === 'PK KO' || profile?.title === 'PK KO HEM' ? 'PK Kokurikulum' :
-              (profile?.title || 'Penyemak')
-            }]</span>
-            <span className="text-purple-400">[Sesi {schoolSettings.activeSession} : Minggu {schoolSettings.activeWeek}]</span>
-          </div>
-        </div>
-
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-10">
-            <div className="w-6 h-6 rounded-full border-4 border-slate-200 border-t-purple-600 animate-spin"></div>
-            <p className="mt-3 text-[10px] font-bold text-slate-400 animate-pulse">Menghubungkan sesi...</p>
-          </div>
-        ) : (
-          <>
-            {/* KPI Cards Grid */}
-            <div className="grid grid-cols-3 gap-2.5 text-xs font-semibold">
-              <div className="bg-slate-900 border border-slate-700 rounded-2xl p-3 shadow-md space-y-1 text-center">
-                <span className="block text-[8px] font-bold text-slate-400 uppercase">Menunggu</span>
-                <span className="block text-lg font-extrabold text-amber-500">{stats.pending}</span>
-              </div>
-              <div className="bg-slate-900 border border-slate-700 rounded-2xl p-3 shadow-md space-y-1 text-center">
-                <span className="block text-[8px] font-bold text-slate-400 uppercase">Lulus</span>
-                <span className="block text-lg font-extrabold text-emerald-500">{stats.approved}</span>
-              </div>
-              <div className="bg-slate-900 border border-slate-700 rounded-2xl p-3 shadow-md space-y-1 text-center">
-                <span className="block text-[8px] font-bold text-slate-400 uppercase">Pembetulan</span>
-                <span className="block text-lg font-extrabold text-rose-500">{stats.notApproved}</span>
-              </div>
-            </div>
-
-            {/* Big Action Cards */}
-            <div className="space-y-3">
-              <Link 
-                href="/reviewer/queue" 
-                className="flex items-center justify-between p-5 bg-gradient-to-tr from-purple-600 to-indigo-500 text-white rounded-[1.8rem] shadow-lg shadow-purple-500/10 hover:shadow-purple-500/20 active:scale-95 transition"
-              >
-                <div className="space-y-1 pr-4">
-                  <h3 className="text-sm font-extrabold tracking-tight">Senarai Semakan (Queue)</h3>
-                  <p className="text-[10px] text-purple-100 font-medium">Buka senarai RPH menunggu semakan dan berikan kelulusan.</p>
-                </div>
-                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.2} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                  </svg>
-                </div>
-              </Link>
-
-              <Link 
-                href="/reviewer/analytics" 
-                className="flex items-center justify-between p-5 bg-slate-900 border border-slate-700 rounded-[1.8rem] shadow-md hover:shadow-lg active:scale-95 transition"
-              >
-                <div className="space-y-1 pr-4">
-                  <h3 className="text-sm font-extrabold tracking-tight">Analisis & Laporan</h3>
-                  <p className="text-[10px] text-slate-400 font-medium">Pantau kadar pematuhan guru, deficit list, dan rejection heatmap.</p>
-                </div>
-                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0 text-slate-600 dark:text-slate-300">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" />
-                  </svg>
-                </div>
-              </Link>
-            </div>
-          </>
-        )}
-
-      </div>
-
-      {/* Force Designation Selection Modal for first-time login Reviewers */}
+    <div className="flex-grow bg-slate-950 text-slate-100 py-6 px-4 relative">
       {titleModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 w-full max-w-sm rounded-[2rem] p-6 space-y-4 shadow-2xl text-xs font-semibold text-left">
-            <div className="border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-extrabold text-slate-100">Pilih Gelaran / Jawatan Anda</h3>
-              <p className="text-[10px] text-purple-300 font-medium mt-0.5">Sila tetapkan jawatan anda untuk paparan pada portal dan dokumen sekolah.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm px-4">
+          <div className="bg-slate-900 border border-slate-700 p-8 rounded-[2rem] shadow-2xl max-w-md w-full">
+            <h2 className="text-xl font-extrabold text-white mb-2">Penetapan Jawatan Penyemak</h2>
+            <p className="text-xs text-slate-400 mb-6">Sila pilih jawatan rasmi anda. Ini akan digunakan sebagai 'Cop Digital' semasa meluluskan RPH.</p>
+            
+            <div className="space-y-3 mb-6">
+              {['Guru Besar', 'PK Pentadbiran', 'PK HEM', 'PK Kokurikulum', 'PK Petang', 'Ketua Panitia'].map(t => (
+                <label key={t} className={`flex items-center gap-3 p-4 rounded-xl border cursor-pointer transition ${selectedTitle === t ? 'bg-blue-600/20 border-blue-500' : 'bg-slate-800 border-slate-700 hover:border-slate-500'}`}>
+                  <input type="radio" name="title" value={t} checked={selectedTitle === t} onChange={(e) => setSelectedTitle(e.target.value)} className="w-4 h-4 text-blue-600 bg-slate-900 border-slate-600 focus:ring-blue-600 focus:ring-2" />
+                  <span className="font-bold text-sm text-white">{t}</span>
+                </label>
+              ))}
             </div>
-
-            <div className="space-y-1">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase">Jawatan Pengurusan</label>
-              <select
-                value={selectedTitle}
-                onChange={(e) => setSelectedTitle(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-3.5 px-3 focus:outline-none"
-              >
-                <option value="">-- Pilih Jawatan --</option>
-                <option value="Guru Besar">Guru Besar</option>
-                <option value="PKP">PKP (Penolong Kanan Pentadbiran)</option>
-                <option value="PK HEM">PK HEM (Penolong Kanan Hal Ehwal Murid)</option>
-                <option value="PK KO HEM">PK KO HEM (Penolong Kanan Kokurikulum)</option>
-              </select>
-            </div>
-
-            <button
-              type="button"
-              disabled={!selectedTitle || isLoading}
-              onClick={handleSaveTitle}
-              className="w-full min-h-[48px] bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition disabled:opacity-40 cursor-pointer"
+            
+            <button 
+              onClick={handleSaveTitle} 
+              disabled={!selectedTitle || isSavingTitle}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition disabled:opacity-50"
             >
-              Simpan & Teruskan
+              {isSavingTitle ? 'Menyimpan...' : 'Sahkan Jawatan'}
             </button>
           </div>
         </div>
       )}
+
+
+      <div className="max-w-4xl mx-auto space-y-6">
+        
+        {isSessionExpired && (
+          <div className="bg-rose-500/10 border border-rose-500/50 p-4 rounded-2xl flex items-start gap-4">
+            <div className="bg-rose-500 text-white p-2 rounded-lg">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-rose-500 font-bold">Takwim Sesi Akademik Telah Tamat</h3>
+              <p className="text-rose-400/80 text-xs mt-1">Tarikh akhir sesi persekolahan semasa telah berlalu. Sila kemas kini tarikh dan nama sesi akademik yang baharu di halaman Tetapan.</p>
+              <Link href="/reviewer/settings" className="inline-block mt-3 bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold py-2 px-4 rounded-lg transition">Kemas Kini Sesi Sekarang</Link>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-slate-900 border border-slate-800 p-6 rounded-[2rem] shadow-xl relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+
+          <div>
+            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest bg-blue-950/40 px-3 py-1 rounded-full border border-blue-900/40">
+              Portal Penyemak
+            </span>
+            <h1 className="text-xl font-extrabold text-white mt-3">Selamat Datang, {profile?.title || 'Penyemak'} {profile?.fullName || profile?.full_name}</h1>
+            <p className="text-xs text-slate-400 mt-1">Anda mempunyai {stats.pending} RPH yang menanti semakan bagi tapisan ini.</p>
+          </div>
+          
+          <div className="flex gap-2 w-full md:w-auto">
+            <select 
+              value={selectedSession} 
+              onChange={(e) => setSelectedSession(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:border-blue-500 focus:outline-none cursor-pointer flex-1 md:flex-none"
+            >
+              <option value="All">Semua Sesi</option>
+              {sessionsMap.map(s => (
+                <option key={s} value={s}>Sesi {s}</option>
+              ))}
+            </select>
+
+            <select 
+              value={selectedWeek} 
+              onChange={(e) => setSelectedWeek(e.target.value)}
+              className="bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:border-blue-500 focus:outline-none cursor-pointer flex-1 md:flex-none"
+            >
+              <option value="All">Semua Minggu</option>
+              {Array.from({ length: 42 }, (_, i) => i + 1).map(w => (
+                <option key={w} value={w}>Minggu {w} {systemWeek === w ? '(Semasa)' : ''}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="text-center py-10 text-xs font-bold text-slate-400 animate-pulse">Menyelaraskan data RPH...</div>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl text-center shadow-lg">
+              <div className="text-3xl font-extrabold text-amber-500">{stats.pending}</div>
+              <div className="text-[10px] uppercase font-bold text-amber-600 mt-1">Perlu Disemak</div>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl text-center shadow-lg">
+              <div className="text-3xl font-extrabold text-emerald-500">{stats.approved}</div>
+              <div className="text-[10px] uppercase font-bold text-emerald-600 mt-1">Lulus</div>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl text-center shadow-lg">
+              <div className="text-3xl font-extrabold text-rose-500">{stats.notApproved}</div>
+              <div className="text-[10px] uppercase font-bold text-rose-600 mt-1">Ditolak</div>
+            </div>
+          </div>
+        )}
+
+          <div className="space-y-3 pt-4">
+            <Link href="/reviewer/rph" className="block bg-indigo-600 hover:bg-indigo-500 text-white p-5 rounded-2xl font-bold shadow-lg shadow-indigo-600/30 text-center transition cursor-pointer mb-3">
+    RPH Saya (Mod Guru)
+  </Link>
+            <Link href="/reviewer/queue" className="block bg-blue-600 hover:bg-blue-500 text-white p-5 rounded-2xl font-bold shadow-lg shadow-blue-600/30 text-center transition cursor-pointer">
+              Semak RPH Guru
+            </Link>
+            <Link href="/reviewer/analytics" className="block bg-slate-800 hover:bg-slate-700 text-white p-5 rounded-2xl font-bold border border-slate-700 text-center transition cursor-pointer">
+              Laporan Prestasi Keseluruhan (Jadual Terperinci)
+            </Link>
+          </div>
+        
+      </div>
     </div>
   );
 }

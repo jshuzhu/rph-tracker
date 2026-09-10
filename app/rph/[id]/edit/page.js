@@ -1,751 +1,412 @@
-export const runtime = 'edge';
-'use client';
+﻿'use client';
 
-
-
-import { useEffect, useState, use } from 'react';
-import Link from 'next/link';
-import { useAuth } from '../../../../lib/authProvider';
-import { supabase } from '../../../../lib/supabaseClient';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { db } from '../../../../lib/firebase';
+import { collection, updateDoc, query, getDocs, where, doc, getDoc } from 'firebase/firestore';
+import { useAuth } from '../../../../lib/authProvider';
+import Link from 'next/link';
 
-export default function EditRph({ params }) {
-  const unwrappedParams = use(params);
-  const rphId = unwrappedParams.id;
-  const { user, profile } = useAuth();
-  const router = useRouter();
-
-  const [subjectsList, setSubjectsList] = useState([]);
-  const [classesList, setClassesList] = useState([]);
-  const [curriculumData, setCurriculumData] = useState([]);
-  const [weeksOptions, setWeeksOptions] = useState([]);
-  const [academicYearList, setAcademicYearList] = useState([]);
-  
-  // Form selections
-  const [subjectId, setSubjectId] = useState('');
-  const [selectedAcademicYear, setSelectedAcademicYear] = useState('');
-  const [selectedClassName, setSelectedClassName] = useState('');
-  const [classId, setClassId] = useState('');
-  const [schoolWeek, setSchoolWeek] = useState('1');
-  const [lessonDate, setLessonDate] = useState('');
-  const [startTime, setStartTime] = useState('07:00');
-  const [endTime, setEndTime] = useState('08:00');
-
-  // Curriculum slicers
-  const [selectedWeek, setSelectedWeek] = useState('');
-  const [selectedTajuk, setSelectedTajuk] = useState('');
-  const [selectedUnit, setSelectedUnit] = useState('');
-  const [contentStandards, setContentStandards] = useState([]);
-  const [learningStandards, setLearningStandards] = useState([]);
-  const [objectives, setObjectives] = useState([]);
-  const [newObjective, setNewObjective] = useState('');
-
-  // Manual inputs for missing curriculum data
-  const [fallbackContentStandard, setFallbackContentStandard] = useState('');
-  const [fallbackLearningStandard, setFallbackLearningStandard] = useState('');
-
-  // Activities, resources, reflections
-  const [activitiesList, setActivitiesList] = useState([]);
-  const [newActivity, setNewActivity] = useState('');
-  const [teachingAids, setTeachingAids] = useState('');
-  const [reflection, setReflection] = useState('');
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isLoadingRecord, setIsLoadingRecord] = useState(true);
-  const [toast, setToast] = useState({ message: '', type: '' });
-
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast({ message: '', type: '' }), 4000);
+export default function EditRPH({ params }) {
+    const toAmPm = (t) => {
+    if (!t) return '';
+    const [h, m] = t.split(':').map(Number);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
   };
 
-  // Fetch initial master lists and existing record
-  useEffect(() => {
-    if (user && rphId) {
-      fetchMasterAndRecord();
+  const parseAmPmTo24h = (timeStr) => {
+    if (!timeStr) return '';
+    if (!timeStr.includes('AM') && !timeStr.includes('PM')) {
+      if (timeStr.includes('${')) return '08:00';
+      return timeStr;
     }
-  }, [user, rphId]);
+    const [time, modifier] = timeStr.split(' ');
+    if (!time || !modifier) return timeStr;
+    let [hours, minutes] = time.split(':');
+    if (hours === '12') hours = '00';
+    if (modifier === 'PM') hours = parseInt(hours, 10) + 12;
+    return `${String(hours).padStart(2, '0')}:${minutes}`;
+  };
 
-  const fetchMasterAndRecord = async () => {
+  const formatTime = (mula, tamat) => {
+    if (mula && tamat) return `${toAmPm(mula)} - ${toAmPm(tamat)}`;
+    if (mula) return toAmPm(mula);
+    return '';
+  };
+
+const router = useRouter();
+  const { user } = useAuth();
+  const { id } = params;
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDrafting, setIsDrafting] = useState(false);
+
+  // Form Fields
+  const [subjects, setSubjects] = useState([]);
+  const [subjectId, setSubjectId] = useState('');
+  const [subjectName, setSubjectName] = useState('');
+
+  const [minggu, setMinggu] = useState('1');
+  const [kelas, setKelas] = useState('');
+  const [tarikh, setTarikh] = useState('');
+  const [hari, setHari] = useState('');
+  const [masaMula, setMasaMula] = useState('');
+  const [masaTamat, setMasaTamat] = useState('');
+
+  // DSKP
+  const [tajukList, setTajukList] = useState([]);
+  const [selectedTajukIdx, setSelectedTajukIdx] = useState('');
+  const [isLoadingTajuk, setIsLoadingTajuk] = useState(false);
+
+  // Content
+  const [objektif, setObjektif] = useState('');
+  const [kriteria, setKriteria] = useState('');
+  const [aktivitiPermulaan, setAktivitiPermulaan] = useState('');
+  const [aktivitiUtama, setAktivitiUtama] = useState('');
+  const [abm, setAbm] = useState('');
+  const [aktivitiPenutup, setAktivitiPenutup] = useState('');
+  const [refleksi, setRefleksi] = useState('');
+
+  useEffect(() => {
+    if (user) {
+      loadSubjects();
+      fetchRphData();
+    }
+  }, [user]);
+
+  // Auto set Hari when Tarikh changes
+  useEffect(() => {
+    if (tarikh) {
+      const d = new Date(tarikh);
+      const days = ['Ahad', 'Isnin', 'Selasa', 'Rabu', 'Khamis', 'Jumaat', 'Sabtu'];
+      setHari(days[d.getDay()]);
+    }
+  }, [tarikh]);
+
+  async function loadSubjects() {
     try {
-      setIsLoadingRecord(true);
-      
-      // Fetch master lists
-      const { data: subjects } = await supabase.from('master_subjects').select('*').eq('is_active', true).order('subject_name');
-      const { data: classes } = await supabase.from('master_classes').select('*').eq('is_active', true).order('class_name');
-      
-      setSubjectsList(subjects || []);
-      setClassesList(classes || []);
-
-      const uniqueYears = Array.from(new Set((classes || []).map(c => c.academic_year)));
-      setAcademicYearList(uniqueYears);
-
-      // Fetch RPH record
-      const { data: rph, error: rphErr } = await supabase
-        .from('rph_submissions')
-        .select('*, class:master_classes(*)')
-        .eq('id', rphId)
-        .single();
-
-      if (rphErr) throw rphErr;
-
-      // Populate form
-      setSubjectId(rph.subject_id);
-      if (rph.class) {
-        setSelectedAcademicYear(rph.class.academic_year);
-        setSelectedClassName(rph.class.class_name);
-        setClassId(rph.class_id);
-      }
-      setLessonDate(rph.lesson_date);
-      setStartTime(rph.start_time.slice(0, 5));
-      setEndTime(rph.end_time.slice(0, 5));
-      setSchoolWeek(String(rph.school_week));
-      
-      if (rph.content_standards && rph.content_standards.length > 0) {
-        setContentStandards(rph.content_standards);
-        setFallbackContentStandard(rph.content_standards[0]);
-      }
-      if (rph.learning_standards && rph.learning_standards.length > 0) {
-        setLearningStandards(rph.learning_standards);
-        setFallbackLearningStandard(rph.learning_standards[0]);
-      }
-      setObjectives(rph.objectives || []);
-      setActivitiesList(rph.activities ? rph.activities.split('\n') : []);
-      setTeachingAids(rph.teaching_aids || '');
-      setReflection(rph.reflection || '');
-
+      const snap = await getDocs(collection(db, 'subjects'));
+      const subjs = snap.docs.map(d => ({ id: d.id, subject_id: d.id, label: d.data().label || d.data().name || d.id }));
+      setSubjects(subjs);
     } catch (e) {
       console.error(e);
-      showToast('Gagal memuatkan rekod RPH.', 'error');
-    } finally {
-      setIsLoadingRecord(false);
     }
-  };
-
-  // Load curriculum standards dynamically
-  useEffect(() => {
-    if (subjectId && selectedAcademicYear) {
-      fetchCurriculum(subjectId, selectedAcademicYear);
-    } else {
-      setCurriculumData([]);
-      setWeeksOptions([]);
-    }
-  }, [subjectId, selectedAcademicYear]);
-
-  const fetchCurriculum = async (subId, year) => {
-    const { data } = await supabase
-      .from('curriculum_standards')
-      .select('*')
-      .eq('subject_id', subId)
-      .eq('tahun', year);
-    
-    setCurriculumData(data || []);
-    const uniqueWeeks = Array.from(new Set((data || []).map(item => item.minggu).filter(Boolean)));
-    setWeeksOptions(uniqueWeeks);
-  };
-
-  // Resolve Class ID
-  useEffect(() => {
-    if (selectedAcademicYear && selectedClassName && classesList.length > 0) {
-      const matched = classesList.find(
-        c => c.academic_year === selectedAcademicYear && c.class_name === selectedClassName
-      );
-      if (matched) setClassId(matched.id);
-    }
-  }, [selectedAcademicYear, selectedClassName, classesList]);
-
-  // Sync manual week value from standard week
-  useEffect(() => {
-    if (selectedWeek) {
-      const match = selectedWeek.match(/\d+/);
-      if (match) setSchoolWeek(match[0]);
-    }
-  }, [selectedWeek]);
-
-  // Slicer lists filtered hierarchically
-  const tajukOptions = Array.from(new Set(
-    curriculumData.map(item => item.tajuk).filter(Boolean)
-  ));
-
-  const unitOptions = Array.from(new Set(
-    curriculumData.filter(item => item.tajuk === selectedTajuk).map(item => item.unit).filter(Boolean)
-  ));
-
-  const contentStandardsOptions = Array.from(new Set(
-    curriculumData.filter(item => item.tajuk === selectedTajuk && (!item.unit || item.unit === selectedUnit)).map(item => item.standard_kandungan).filter(Boolean)
-  ));
-
-  const learningStandardsOptions = curriculumData
-    .filter(item => item.tajuk === selectedTajuk && (!item.unit || item.unit === selectedUnit) && contentStandards.includes(item.standard_kandungan))
-    .map(item => item.standard_pembelajaran)
-    .filter(Boolean);
-
-  const toggleContentStandard = (std) => {
-    setContentStandards(prev => prev.includes(std) ? prev.filter(x => x !== std) : [...prev, std]);
-  };
-
-  const toggleLearningStandard = (std) => {
-    setLearningStandards(prev => prev.includes(std) ? prev.filter(x => x !== std) : [...prev, std]);
-  };
-
-  const addObjective = () => {
-    if (!newObjective.trim()) return;
-    setObjectives([...objectives, newObjective.trim()]);
-    setNewObjective('');
-  };
-
-  const removeObjective = (index) => {
-    setObjectives(objectives.filter((_, i) => i !== index));
-  };
-
-  const addActivity = () => {
-    if (!newActivity.trim()) return;
-    setActivitiesList([...activitiesList, newActivity.trim()]);
-    setNewActivity('');
-  };
-
-  const removeActivity = (index) => {
-    setActivitiesList(activitiesList.filter((_, i) => i !== index));
-  };
-
-  // Time Clash Prevention check
-  const checkTimeClash = async () => {
-    const { data } = await supabase
-      .from('rph_submissions')
-      .select('id, start_time, end_time')
-      .eq('teacher_id', user.id)
-      .eq('lesson_date', lessonDate)
-      .neq('id', rphId)
-      .eq('is_deleted', false);
-
-    if (!data) return false;
-
-    const toMins = (t) => {
-      const [h, m] = t.split(':');
-      return parseInt(h) * 60 + parseInt(m);
-    };
-
-    const newStart = toMins(startTime);
-    const newEnd = toMins(endTime);
-
-    for (const record of data) {
-      const existingStart = toMins(record.start_time);
-      const existingEnd = toMins(record.end_time);
-      if (newStart < existingEnd && newEnd > existingStart) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  const handleSubmit = async (e, targetStatus = 'Pending') => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    if (!subjectId || !classId || !lessonDate || !startTime || !endTime) {
-      showToast('Sila isi semua maklumat mandatori.', 'error');
-      setIsSubmitting(false);
-      return;
-    }
-
-    const finalContent = contentStandards.length > 0 ? contentStandards : [fallbackContentStandard];
-    const finalLearning = learningStandards.length > 0 ? learningStandards : [fallbackLearningStandard];
-
-    if (!finalContent[0] || !finalLearning[0]) {
-      showToast('Sila pilih/isi Standard Kandungan & Pembelajaran.', 'error');
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (objectives.length === 0) {
-      showToast('Sila isi sekurang-kurangnya satu Objektif Pembelajaran.', 'error');
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (activitiesList.length === 0) {
-      showToast('Sila isi sekurang-kurangnya satu Aktiviti Pembelajaran.', 'error');
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (startTime >= endTime) {
-      showToast('Waktu Mula mestilah lebih awal daripada Waktu Tamat.', 'error');
-      setIsSubmitting(false);
-      return;
-    }
-
-    const isClashing = await checkTimeClash();
-    if (isClashing) {
-      showToast('Ralat Pertindihan Waktu bagi tarikh dan masa ini.', 'error');
-      setIsSubmitting(false);
-      return;
-    }
-
-    try {
-      const { data: settingsData } = await supabase
-        .from('school_settings')
-        .select('active_session')
-        .eq('id', 1)
-        .single();
-      const activeSession = settingsData?.active_session || '2026';
-
-      const payload = {
-        subject_id: subjectId,
-        class_id: classId,
-        lesson_date: lessonDate,
-        start_time: startTime,
-        end_time: endTime,
-        school_week: parseInt(schoolWeek),
-        academic_session: activeSession,
-        content_standards: finalContent,
-        learning_standards: finalLearning,
-        objectives: objectives,
-        activities: activitiesList.join('\n'),
-        teaching_aids: teachingAids,
-        reflection,
-        status: targetStatus,
-        updated_at: new Date().toISOString()
-      };
-
-      const { data: previous } = await supabase.from('rph_submissions').select('*').eq('id', rphId).single();
-
-      const { error } = await supabase
-        .from('rph_submissions')
-        .update(payload)
-        .eq('id', rphId);
-
-      if (error) throw error;
-
-      await supabase.from('rph_history').insert({
-        rph_id: rphId,
-        action_by: user.id,
-        status_changed_to: targetStatus,
-        remarks: 'Dikemaskini oleh Guru',
-        previous_data_snapshot: previous
-      });
-
-      showToast(targetStatus === 'Draft' ? 'Draf RPH berjaya dikemaskini!' : 'RPH berjaya dihantar semula!');
-      setTimeout(() => {
-        router.push('/dashboard/queue');
-      }, 1000);
-    } catch (err) {
-      console.error(err);
-      showToast('Ralat memproses RPH: ' + err.message, 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const classNameOptions = classesList
-    .filter(c => c.academic_year === selectedAcademicYear)
-    .map(c => c.class_name);
-
-  const hoursList = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21', '22'];
-  const minutesList = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
-
-  const startHour = startTime ? startTime.split(':')[0] : '07';
-  const startMin = startTime ? startTime.split(':')[1] : '00';
-  const endHour = endTime ? endTime.split(':')[0] : '08';
-  const endMin = endTime ? endTime.split(':')[1] : '00';
-
-  const handleStartHourChange = (val) => { setStartTime(`${val}:${startMin}`); };
-  const handleStartMinChange = (val) => { setStartTime(`${startHour}:${val}`); };
-  const handleEndHourChange = (val) => { setEndTime(`${val}:${endMin}`); };
-  const handleEndMinChange = (val) => { setEndTime(`${endHour}:${val}`); };
-
-  if (!user || profile?.role === 'admin' || profile?.role === 'reviewer') {
-    return (
-      <div className="flex-grow flex items-center justify-center p-12 text-slate-400 font-bold text-xs">
-        Memverifikasi akses keselamatan...
-      </div>
-    );
   }
 
-  return (
-    <div className="flex-grow bg-transparent text-slate-100 py-8 px-4 sm:px-6">
-      <div className="max-w-md mx-auto space-y-6">
-        
-        {/* Toast */}
-        {toast.message && (
-          <div className={`fixed top-4 right-4 z-50 p-4 rounded-xl shadow-xl text-xs font-bold text-white transition-all ${
-            toast.type === 'error' ? 'bg-rose-600' : 'bg-emerald-600'
-          }`}>
-            {toast.message}
-          </div>
-        )}
+  async function fetchRphData() {
+    try {
+      const d = await getDoc(doc(db, 'rph_submissions', id));
+      if (!d.exists()) { router.push('/dashboard/queue'); return; }
+      const rph = d.data();
+      if (rph.User_Id !== user.id) { router.push('/dashboard/queue'); return; }
 
-        {/* Back Navigation */}
+      setSubjectId(rph.Subject_Id || '');
+      setSubjectName(rph.Subject_Name || '');
+      setMinggu(rph.Minggu || '1');
+      setKelas(rph.Kelas_Id || '');
+      setTarikh(rph.Tarikh || '');
+      setHari(rph.Hari || '');
+      if (rph.Masa) {
+        const parts = rph.Masa.split(' - ');
+        setMasaMula(parseAmPmTo24h(parts[0]) || '');
+        setMasaTamat(parseAmPmTo24h(parts[1]) || '');
+      }
+      setObjektif(rph.Objektif_Pembelajaran || rph.OBJEKTIF || '');
+      setKriteria(rph.Kriteria_Kejayaan || rph.KRITERIA || '');
+      setAktivitiPermulaan(rph.Aktiviti_Permulaan || '');
+      setAktivitiUtama(rph.Aktiviti_Utama || rph.Ulasan || '');
+      setAbm(rph.Alat_Bantu_mengajar || '');
+      setAktivitiPenutup(rph.Aktiviti_Penutup || '');
+      setRefleksi(rph.Refleksi || '');
+
+      if (rph.Subject_Id) {
+        setIsLoadingTajuk(true);
+        const q = query(collection(db, 'tajuk'), where('subject_id', '==', rph.Subject_Id));
+        const snap = await getDocs(q);
+        const list = snap.docs.map(d2 => ({ doc_id: d2.id, ...d2.data() }));
+        setTajukList(list);
+        if (rph.TAJUK) {
+          const idx = list.findIndex(t => t.TAJUK === rph.TAJUK);
+          if (idx !== -1) setSelectedTajukIdx(String(idx));
+        }
+        setIsLoadingTajuk(false);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  const handleSubjectChange = async (e) => {
+    const val = e.target.value;
+    setSubjectId(val);
+    const selected = subjects.find(s => s.subject_id === val);
+    if (selected) setSubjectName(selected.label);
+    else setSubjectName('');
+
+    setSelectedTajukIdx('');
+    if (val) {
+      setIsLoadingTajuk(true);
+      try {
+        const q = query(collection(db, 'tajuk'), where('subject_id', '==', val));
+        const snap = await getDocs(q);
+        setTajukList(snap.docs.map(d => ({ doc_id: d.id, ...d.data() })));
+      } catch (e) { console.error(e); }
+      finally { setIsLoadingTajuk(false); }
+    } else {
+      setTajukList([]);
+    }
+  };
+
+  const handleSubmit = async (isDraft = false) => {
+    if (isDraft) setIsDrafting(true); else setIsSubmitting(true);
+
+    try {
+      const selectedTajuk = tajukList[selectedTajukIdx] || {};
+      
+      const payload = {
+        Status_Id: isDraft ? '82' : '80',
+        Subject_Id: subjectId,
+        Subject_Name: subjectName,
+        Minggu: minggu,
+        Kelas_Id: kelas,
+        Tarikh: tarikh,
+        Hari: hari,
+        Masa: formatMasa(masaMula, masaTamat),
+        TEMA: selectedTajuk.TEMA || selectedTajuk.KEMAHIRAN || '',
+        TAJUK: selectedTajuk.TAJUK || '',
+        SK: selectedTajuk.SK || '',
+        SP: selectedTajuk.SP || '',
+        Objektif_Pembelajaran: objektif,
+        Kriteria_Kejayaan: kriteria,
+        Aktiviti_Permulaan: aktivitiPermulaan,
+        Aktiviti_Utama: aktivitiUtama,
+        Alat_Bantu_mengajar: abm,
+        Aktiviti_Penutup: aktivitiPenutup,
+        Refleksi: refleksi,
+        TIMPESTAMP_SEND: new Date().toISOString(),
+      };
+
+      await updateDoc(doc(db, 'rph_submissions', id), payload);
+      alert(isDraft ? 'Draf berjaya disimpan!' : 'RPH berjaya dihantar untuk semakan!');
+      router.push('/dashboard/queue');
+    } catch (e) {
+      alert('Ralat mengemaskini RPH');
+      console.error(e);
+    } finally {
+      setIsSubmitting(false);
+      setIsDrafting(false);
+    }
+  };
+
+  if (isLoading) return <div className="p-12 text-center text-slate-400 animate-pulse">Memuatkan RPH...</div>;
+
+  return (
+    <div className="flex-grow bg-slate-950 py-6 px-4">
+      <div className="max-w-4xl mx-auto space-y-6">
+        
         <div className="flex items-center justify-between">
-          <Link 
-            href="/dashboard/queue" 
-            className="inline-flex items-center text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline gap-1 py-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
-            </svg>
-            Batal
-          </Link>
-          <span className="text-[10px] font-bold text-slate-400 uppercase">Kemaskini RPH</span>
+          <h1 className="text-2xl font-extrabold text-white tracking-tight">Kemaskini RPH</h1>
+          <Link href={`/rph/${id}`} className="text-sm font-bold text-slate-400 hover:text-white transition">← Batal</Link>
         </div>
 
-        {/* Form Container */}
-        {isLoadingRecord ? (
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-10 flex flex-col items-center justify-center">
-            <div className="w-6 h-6 rounded-full border-4 border-slate-200 border-t-purple-600 animate-spin"></div>
-            <p className="mt-3 text-[10px] font-bold text-slate-400 animate-pulse">Memuatkan data RPH...</p>
-          </div>
-        ) : (
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-5 shadow-md space-y-5">
-            <div className="border-b border-slate-800 pb-3">
-              <h2 className="text-sm font-extrabold text-slate-100">Edit Laporan RPH</h2>
-              <p className="text-[10px] text-slate-400 font-medium">Ubahsuai dan hantar semula rekod pengajaran anda.</p>
-            </div>
-
-            <form className="space-y-4 text-xs font-semibold">
-              {/* Subject Dropdown */}
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase">Mata Pelajaran *</label>
-                <select
-                  value={subjectId}
-                  onChange={(e) => setSubjectId(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-3 px-3 focus:outline-none"
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl space-y-8">
+          
+          {/* BAHAGIAN A: MAKLUMAT ASAS */}
+          <div className="space-y-6">
+            <h2 className="text-sm font-extrabold text-blue-400 uppercase tracking-widest border-b border-slate-800 pb-2">A. Maklumat Asas</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Mata Pelajaran</label>
+                <select 
+                  value={subjectId} 
+                  onChange={handleSubjectChange} 
+                  required
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:border-blue-500 focus:outline-none"
                 >
                   <option value="">-- Pilih Mata Pelajaran --</option>
-                  {subjectsList.map(s => (
-                    <option key={s.id} value={s.id}>{s.subject_name} ({s.subject_code})</option>
+                  {subjects.map(s => <option key={s.id} value={s.subject_id}>{s.label}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Minggu</label>
+                <select 
+                  value={minggu} 
+                  onChange={e => setMinggu(e.target.value)} 
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  {Array.from({ length: 42 }, (_, i) => i + 1).map(w => (
+                    <option key={w} value={w}>Minggu {w}</option>
                   ))}
                 </select>
               </div>
 
-              {/* Grid for Class selections */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Tahun/Tingkatan *</label>
-                  <select
-                    value={selectedAcademicYear}
-                    onChange={(e) => { setSelectedAcademicYear(e.target.value); setSelectedClassName(''); }}
-                    className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-3 px-3 focus:outline-none"
-                  >
-                    <option value="">-- Pilih --</option>
-                    {academicYearList.map(y => (
-                      <option key={y} value={y}>{y}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Kelas *</label>
-                  <select
-                    value={selectedClassName}
-                    onChange={(e) => setSelectedClassName(e.target.value)}
-                    disabled={!selectedAcademicYear}
-                    className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-3 px-3 focus:outline-none disabled:opacity-40"
-                  >
-                    <option value="">-- Pilih Kelas --</option>
-                    {classNameOptions.map(name => (
-                      <option key={name} value={name}>{name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Lesson date & timings */}
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase">Tarikh Pengajaran *</label>
-                <input
-                  type="date"
-                  value={lessonDate}
-                  onChange={(e) => setLessonDate(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-3 px-3 focus:outline-none font-bold [color-scheme:dark]"
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Kelas</label>
+                <input 
+                  type="text" 
+                  value={kelas}
+                  onChange={e => setKelas(e.target.value)}
+                  placeholder="Contoh: 1 Mawar"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
 
-               <div className="grid grid-cols-2 gap-3">
-                 <div className="space-y-1">
-                   <label className="block text-[10px] font-bold text-slate-500 uppercase">Waktu Mula *</label>
-                   <div className="flex gap-1.5">
-                     <select
-                       value={startHour}
-                       onChange={(e) => handleStartHourChange(e.target.value)}
-                       className="w-1/2 bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2.5 px-2 focus:outline-none font-bold text-center text-xs"
-                     >
-                       {hoursList.map(h => <option key={h} value={h}>{h}</option>)}
-                     </select>
-                     <span className="self-center text-slate-400 font-bold">:</span>
-                     <select
-                       value={startMin}
-                       onChange={(e) => handleStartMinChange(e.target.value)}
-                       className="w-1/2 bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2.5 px-2 focus:outline-none font-bold text-center text-xs"
-                     >
-                       {minutesList.map(m => <option key={m} value={m}>{m}</option>)}
-                     </select>
-                   </div>
-                 </div>
-
-                 <div className="space-y-1">
-                   <label className="block text-[10px] font-bold text-slate-500 uppercase">Waktu Tamat *</label>
-                   <div className="flex gap-1.5">
-                     <select
-                       value={endHour}
-                       onChange={(e) => handleEndHourChange(e.target.value)}
-                       className="w-1/2 bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2.5 px-2 focus:outline-none font-bold text-center text-xs"
-                     >
-                       {hoursList.map(h => <option key={h} value={h}>{h}</option>)}
-                     </select>
-                     <span className="self-center text-slate-400 font-bold">:</span>
-                     <select
-                       value={endMin}
-                       onChange={(e) => handleEndMinChange(e.target.value)}
-                       className="w-1/2 bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2.5 px-2 focus:outline-none font-bold text-center text-xs"
-                     >
-                       {minutesList.map(m => <option key={m} value={m}>{m}</option>)}
-                     </select>
-                   </div>
-                 </div>
-               </div>
-
-
-              {/* ================= CURRICULUM SELECTORS (DSKP) ================= */}
-              {curriculumData.length > 0 ? (
-                <div className="border-t border-slate-800/80 pt-4 space-y-4">
-                  <span className="block text-[10px] font-extrabold text-purple-600 dark:text-purple-400 uppercase tracking-wider">Pemilihan DSKP Digital</span>
-                  
-                  {/* DSKP Minggu */}
-                  <div className="space-y-1">
-                    <label className="block text-[10px] font-bold text-slate-450 uppercase">Minggu Rujukan DSKP</label>
-                    <select
-                      value={selectedWeek}
-                      onChange={(e) => { setSelectedWeek(e.target.value); setSelectedTajuk(''); setSelectedUnit(''); setContentStandards([]); setLearningStandards([]); }}
-                      className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2 px-3 focus:outline-none"
-                    >
-                      <option value="">-- Pilih Minggu --</option>
-                      {weeksOptions.map(w => <option key={w} value={w}>{w}</option>)}
-                    </select>
-                  </div>
-
-                  {/* Tajuk */}
-                  {selectedWeek && (
-                    <div className="space-y-1 animate-fadeIn">
-                      <label className="block text-[10px] font-bold text-slate-450 uppercase">Tajuk</label>
-                      <select
-                        value={selectedTajuk}
-                        onChange={(e) => { setSelectedTajuk(e.target.value); setSelectedUnit(''); setContentStandards([]); setLearningStandards([]); }}
-                        className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2 px-3 focus:outline-none"
-                      >
-                        <option value="">-- Pilih Tajuk --</option>
-                        {tajukOptions.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Unit */}
-                  {selectedTajuk && (
-                    <div className="space-y-1 animate-fadeIn">
-                      <label className="block text-[10px] font-bold text-slate-450 uppercase">Unit</label>
-                      <select
-                        value={selectedUnit}
-                        onChange={(e) => { setSelectedUnit(e.target.value); setContentStandards([]); setLearningStandards([]); }}
-                        className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2 px-3 focus:outline-none"
-                      >
-                        <option value="">-- Pilih Unit --</option>
-                        {unitOptions.map(u => <option key={u} value={u}>{u}</option>)}
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Content Standards Multi-checkbox */}
-                  {selectedUnit && contentStandardsOptions.length > 0 && (
-                    <div className="space-y-1.5 animate-fadeIn">
-                      <label className="block text-[10px] font-bold text-slate-450 uppercase">Standard Kandungan *</label>
-                      <div className="space-y-2 bg-slate-800 p-3 rounded-xl border border-slate-700 max-h-[150px] overflow-y-auto">
-                        {contentStandardsOptions.map(std => (
-                          <label key={std} className="flex items-start space-x-2 text-[11px] text-slate-200 font-medium">
-                            <input
-                              type="checkbox"
-                              checked={contentStandards.includes(std)}
-                              onChange={() => toggleContentStandard(std)}
-                              className="mt-0.5"
-                            />
-                            <span>{std}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Learning Standards Multi-checkbox */}
-                  {contentStandards.length > 0 && learningStandardsOptions.length > 0 && (
-                    <div className="space-y-1.5 animate-fadeIn">
-                      <label className="block text-[10px] font-bold text-slate-450 uppercase">Standard Pembelajaran *</label>
-                      <div className="space-y-2 bg-slate-800 p-3 rounded-xl border border-slate-700 max-h-[150px] overflow-y-auto">
-                        {learningStandardsOptions.map(std => (
-                          <label key={std} className="flex items-start space-x-2 text-[11px] text-slate-200 font-medium">
-                            <input
-                              type="checkbox"
-                              checked={learningStandards.includes(std)}
-                              onChange={() => toggleLearningStandard(std)}
-                              className="mt-0.5"
-                            />
-                            <span>{std}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                subjectId && (
-                  <div className="border-t border-slate-800/80 pt-4 space-y-3">
-                    <span className="block text-[10px] font-extrabold text-amber-500 uppercase tracking-wider">Tiada DSKP digital / Maklumat Manual Sedia Ada</span>
-                    
-                    <div className="space-y-1">
-                      <label className="block text-[10px] font-bold text-slate-450 uppercase">Standard Kandungan Manual *</label>
-                      <textarea
-                        placeholder="Masukkan standard kandungan..."
-                        value={fallbackContentStandard}
-                        onChange={(e) => setFallbackContentStandard(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2 px-3 focus:outline-none min-h-[60px]"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="block text-[10px] font-bold text-slate-450 uppercase">Standard Pembelajaran Manual *</label>
-                      <textarea
-                        placeholder="Masukkan standard pembelajaran..."
-                        value={fallbackLearningStandard}
-                        onChange={(e) => setFallbackLearningStandard(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2 px-3 focus:outline-none min-h-[60px]"
-                      />
-                    </div>
-                  </div>
-                )
-              )}
-
-              {/* ================= OBJECTIVES LIST ================= */}
-              <div className="border-t border-slate-800/80 pt-4 space-y-2">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase">Objektif Pembelajaran *</label>
-                
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Tambah objektif pembelajaran..."
-                    value={newObjective}
-                    onChange={(e) => setNewObjective(e.target.value)}
-                    className="flex-grow bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2.5 px-3 focus:outline-none"
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Masa</label>
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="time" 
+                    value={masaMula}
+                    onChange={e => setMasaMula(e.target.value)}
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:border-blue-500 focus:outline-none"
                   />
-                  <button
-                    type="button"
-                    onClick={addObjective}
-                    className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 rounded-xl text-xs shrink-0 cursor-pointer min-h-[40px]"
-                  >
-                    Tambah
-                  </button>
+                  <span className="text-slate-500 font-bold text-xs shrink-0">hingga</span>
+                  <input 
+                    type="time" 
+                    value={masaTamat}
+                    onChange={e => setMasaTamat(e.target.value)}
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:border-blue-500 focus:outline-none"
+                  />
                 </div>
-
-                {objectives.length > 0 && (
-                  <ul className="space-y-1.5 bg-slate-800 p-3 rounded-xl border border-slate-700 text-[11px] font-medium text-slate-200">
-                    {objectives.map((obj, index) => (
-                      <li key={index} className="flex items-center justify-between gap-3">
-                        <span>{index + 1}. {obj}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeObjective(index)}
-                          className="text-rose-500 font-extrabold hover:underline"
-                        >
-                          Batal
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
               </div>
 
-               {/* Activities */}
-               <div className="space-y-2 pt-2 border-t border-slate-800/80">
-                 <label className="block text-[10px] font-bold text-slate-500 uppercase">Aktiviti Pembelajaran *</label>
-                 
-                 <div className="flex gap-2">
-                   <input
-                     type="text"
-                     placeholder="Cth: Murid melakukan perbincangan berkumpulan..."
-                     value={newActivity}
-                     onChange={(e) => setNewActivity(e.target.value)}
-                     className="flex-grow bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2 px-3 focus:outline-none text-xs"
-                   />
-                   <button
-                     type="button"
-                     onClick={addActivity}
-                     className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-4 rounded-xl text-xs shrink-0 cursor-pointer min-h-[40px]"
-                   >
-                     Tambah
-                   </button>
-                 </div>
-
-                 {activitiesList.length > 0 && (
-                   <ul className="space-y-1.5 bg-slate-800 p-3 rounded-xl border border-slate-700 text-[11px] font-medium text-slate-200">
-                     {activitiesList.map((act, index) => (
-                       <li key={index} className="flex items-center justify-between gap-3">
-                         <span>{index + 1}. {act}</span>
-                         <button
-                           type="button"
-                           onClick={() => removeActivity(index)}
-                           className="text-rose-500 font-extrabold hover:underline"
-                         >
-                           Batal
-                         </button>
-                       </li>
-                     ))}
-                   </ul>
-                 )}
-               </div>
-
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase">Bahan Bantu Mengajar (BBM)</label>
-                <input
-                  type="text"
-                  placeholder="Projektor, Buku Teks, Slaid"
-                  value={teachingAids}
-                  onChange={(e) => setTeachingAids(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-3 px-3 focus:outline-none"
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Tarikh</label>
+                <input 
+                  type="date" 
+                  value={tarikh}
+                  onChange={e => setTarikh(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase">Refleksi Guru</label>
-                <textarea
-                  placeholder="Masukkan catatan refleksi selepas pengajaran..."
-                  value={reflection}
-                  onChange={(e) => setReflection(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-xl py-2 px-3 focus:outline-none min-h-[60px]"
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Hari (Auto)</label>
+                <input 
+                  type="text" 
+                  value={hari}
+                  readOnly
+                  className="w-full bg-slate-800/50 border border-slate-700 rounded-xl p-3 text-sm text-slate-400"
                 />
               </div>
 
-              {/* Form actions */}
-              <div className="flex gap-2 pt-4 border-t border-slate-800/80">
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={(e) => handleSubmit(e, 'Draft')}
-                  className="flex-grow min-h-[48px] bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-bold transition disabled:opacity-40 cursor-pointer"
-                >
-                  Simpan Draf
-                </button>
-                
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={(e) => handleSubmit(e, 'Pending')}
-                  className="flex-grow min-h-[48px] bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold transition disabled:opacity-40 cursor-pointer"
-                >
-                  {isSubmitting ? 'Mengirim...' : 'Kemaskini RPH'}
-                </button>
-              </div>
-
-            </form>
+            </div>
           </div>
-        )}
 
+          {/* BAHAGIAN B: STANDARD KANDUNGAN */}
+          <div className="space-y-6">
+            <h2 className="text-sm font-extrabold text-emerald-400 uppercase tracking-widest border-b border-slate-800 pb-2">B. Standard Kandungan (DSKP)</h2>
+            
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Topik / DSKP</label>
+              <select 
+                value={selectedTajukIdx} 
+                onChange={e => setSelectedTajukIdx(e.target.value)} 
+                disabled={!subjectId || isLoadingTajuk}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:border-emerald-500 focus:outline-none disabled:opacity-50"
+              >
+                <option value="">{isLoadingTajuk ? 'Memuatkan...' : !subjectId ? 'Pilih Subjek Dahulu' : '-- Pilih Tajuk --'}</option>
+                {tajukList.map((t, idx) => (
+                  <option key={t.doc_id} value={idx}>
+                    {t.TEMA || t.KEMAHIRAN} — {t.TAJUK} ({t.SK})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedTajukIdx !== '' && tajukList[selectedTajukIdx] && (
+              <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 space-y-2 text-xs">
+                <p><span className="text-slate-400 font-bold">TEMA:</span> {tajukList[selectedTajukIdx].TEMA || tajukList[selectedTajukIdx].KEMAHIRAN || '-'}</p>
+                <p><span className="text-slate-400 font-bold">TAJUK:</span> {tajukList[selectedTajukIdx].TAJUK || '-'}</p>
+                <p><span className="text-slate-400 font-bold">SK:</span> {tajukList[selectedTajukIdx].SK || '-'}</p>
+                <p><span className="text-slate-400 font-bold">SP:</span> {tajukList[selectedTajukIdx].SP || '-'}</p>
+              </div>
+            )}
+          </div>
+
+          {/* BAHAGIAN C: OBJEKTIF & KRITERIA */}
+          <div className="space-y-6">
+            <h2 className="text-sm font-extrabold text-purple-400 uppercase tracking-widest border-b border-slate-800 pb-2">C. Objektif & Kriteria Kejayaan</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Objektif Pembelajaran</label>
+                <textarea 
+                  value={objektif} 
+                  onChange={e => setObjektif(e.target.value)} 
+                  placeholder="Pada akhir pembelajaran, murid dapat..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm min-h-[100px] focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Kriteria Kejayaan</label>
+                <textarea 
+                  value={kriteria} 
+                  onChange={e => setKriteria(e.target.value)} 
+                  placeholder="Murid dianggap berjaya sekiranya..."
+                  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm min-h-[100px] focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* BAHAGIAN D: RANGKA PENGAJARAN */}
+          <div className="space-y-6">
+            <h2 className="text-sm font-extrabold text-rose-400 uppercase tracking-widest border-b border-slate-800 pb-2">D. Rangka Pengajaran</h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Aktiviti Permulaan</label>
+                <textarea value={aktivitiPermulaan} onChange={e => setAktivitiPermulaan(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm min-h-[80px] focus:border-rose-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Aktiviti Utama</label>
+                <textarea value={aktivitiUtama} onChange={e => setAktivitiUtama(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm min-h-[120px] focus:border-rose-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Alat Bantu Mengajar (ABM)</label>
+                <input type="text" value={abm} onChange={e => setAbm(e.target.value)} placeholder="Contoh: Buku Teks, LCD, Papan Putih" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:border-rose-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Aktiviti Penutup</label>
+                <textarea value={aktivitiPenutup} onChange={e => setAktivitiPenutup(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm min-h-[80px] focus:border-rose-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 mb-1 uppercase tracking-wider">Refleksi / Catatan</label>
+                <textarea value={refleksi} onChange={e => setRefleksi(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm min-h-[80px] focus:border-rose-500 focus:outline-none" />
+              </div>
+            </div>
+          </div>
+
+          {/* ACTIONS */}
+          <div className="pt-6 flex flex-col sm:flex-row justify-end items-center gap-4 border-t border-slate-800">
+            <button 
+              type="button"
+              onClick={() => handleSubmit(true)}
+              disabled={isSubmitting || isDrafting}
+              className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-slate-300 bg-slate-800 hover:bg-slate-700 transition disabled:opacity-50"
+            >
+              {isDrafting ? 'Menyimpan...' : 'Simpan Draf'}
+            </button>
+            <button 
+              type="button"
+              onClick={() => handleSubmit(false)}
+              disabled={isSubmitting || isDrafting || !subjectId || !kelas || !tarikh}
+              className="w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 shadow-lg shadow-purple-500/20 transition hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
+            >
+              {isSubmitting ? 'Mengemaskini...' : 'Hantar RPH'}
+            </button>
+          </div>
+
+        </div>
       </div>
     </div>
   );

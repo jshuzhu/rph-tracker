@@ -30,7 +30,7 @@ export default function AdminSettings() {
 
   useEffect(() => {
     if (user && profile) {
-      if (profile.role !== 'admin') {
+      if (profile.role !== 'reviewer') {
         router.push('/');
       } else {
         fetchSchoolSettings();
@@ -54,7 +54,7 @@ export default function AdminSettings() {
   
   const handlePinSubmit = (e) => {
     e.preventDefault();
-    if (pinInput === '0000') {
+    if (pinInput === '1234') {
       setIsPinVerified(true);
       setPinError(false);
     } else {
@@ -163,7 +163,7 @@ export default function AdminSettings() {
             >
               Teruskan
             </button>
-            <Link href="/admin/dashboard" className="block text-center text-xs text-slate-500 hover:text-slate-300 mt-4 font-bold transition">Kembali ke Dashboard</Link>
+            <Link href="/reviewer/dashboard" className="block text-center text-xs text-slate-500 hover:text-slate-300 mt-4 font-bold transition">Kembali ke Dashboard</Link>
           </div>
         </form>
       </div>

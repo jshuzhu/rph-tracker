@@ -1,9 +1,0 @@
-name = "rph-tracker"
-compatibility_date = "2024-09-01"
-compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = ".vercel/output/static"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "rph_tracker_db"
-database_id = "514a0b83-5453-4cc8-bdaa-687e66c8a259"

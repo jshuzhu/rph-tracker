@@ -1,6 +1,7 @@
 import './globals.css';
 import { AuthProvider } from '../lib/authProvider';
 import AuthGuard from '../components/authGuard';
+import SessionGuard from '../components/SessionGuard';
 import Navbar from '../components/Navbar';
 import BottomNav from '../components/BottomNav';
 
@@ -20,18 +21,18 @@ export default function RootLayout({ children }) {
       <body className="bg-slate-950 text-slate-900 min-h-full flex flex-col antialiased font-sans">
         <AuthProvider>
           <AuthGuard>
-            {/* Global Navbar */}
-            <Navbar />
-            
-            {/* Global Mobile Bottom Navigation */}
-            <BottomNav />
+            <SessionGuard>
+              {/* Global Navbar */}
+              <Navbar />
+              
+              {/* Global Mobile Bottom Navigation */}
+              <BottomNav />
 
-            {/* Main content area */}
-            <main className="flex-grow flex flex-col pb-16 md:pb-0 animated-gradient-bg">
-              {children}
-            </main>
-
-
+              {/* Main content area */}
+              <main className="flex-grow flex flex-col pb-16 md:pb-0 animated-gradient-bg">
+                {children}
+              </main>
+            </SessionGuard>
           </AuthGuard>
         </AuthProvider>
       </body>
