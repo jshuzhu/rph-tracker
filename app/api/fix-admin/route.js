@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { auth, db } from '../../../lib/firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
@@ -5,7 +6,12 @@ import { doc, setDoc } from 'firebase/firestore';
 
 export async function GET() {
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, 'admin@test.edu.my', 'password123'); // Assume password is password123 or we try to recreate
+    let userCredential;
+    try {
+      userCredential = await signInWithEmailAndPassword(auth, 'admin@test.edu.my', 'Test@1234');
+    } catch (e) {
+      userCredential = await signInWithEmailAndPassword(auth, 'admin@test.edu.my', 'password123');
+    }
     const user = userCredential.user;
     
     await setDoc(doc(db, 'users', user.uid), {

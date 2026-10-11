@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 export default function SessionGuard({ children }) {
-  const { user, profile } = useAuth();
+  const { user, profile, logout } = useAuth();
   const [isExpired, setIsExpired] = useState(false);
   const [loading, setLoading] = useState(true);
   const pathname = usePathname();
@@ -76,6 +76,7 @@ export default function SessionGuard({ children }) {
               </div>
               <h2 className="text-xl font-extrabold text-white mb-2">Sesi Belum Wujud</h2>
               <p className="text-sm text-slate-400 mb-6">Sesi akademik semasa masih belum ditetapkan atau telah tamat. Sila tunggu sehingga pihak pentadbir mengemaskini takwim persekolahan di dalam sistem.</p>
+              <button onClick={logout} className="inline-block bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 px-6 rounded-xl transition text-xs border border-slate-700">Log Keluar</button>
             </div>
           </div>
         </>
@@ -93,7 +94,10 @@ export default function SessionGuard({ children }) {
               </div>
               <h2 className="text-xl font-extrabold text-white mb-2">Sila Tetapkan Sesi Sekarang</h2>
               <p className="text-sm text-slate-400 mb-6">Tarikh akhir sesi persekolahan semasa telah berlalu atau belum diwujudkan. Semua fungsi portal telah dikunci sementara sehingga takwim dikemaskini.</p>
-              <Link href={profile.role === 'admin' ? '/admin/settings' : '/reviewer/settings'} className="inline-block bg-amber-600 hover:bg-amber-500 text-white font-bold py-3 px-6 rounded-xl transition shadow-lg shadow-amber-600/30">Kemaskini Tetapan</Link>
+              <div className="flex items-center justify-center gap-3">
+                <Link href={profile.role === 'admin' ? '/admin/settings' : '/reviewer/settings'} className="inline-block bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 px-5 rounded-xl transition shadow-lg shadow-amber-600/30 text-xs">Kemaskini Tetapan</Link>
+                <button onClick={logout} className="inline-block bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-2.5 px-5 rounded-xl transition text-xs border border-slate-700">Log Keluar</button>
+              </div>
             </div>
           </div>
         </>

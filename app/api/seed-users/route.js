@@ -1,10 +1,12 @@
+export const dynamic = 'force-dynamic';
 import { NextResponse } from 'next/server';
 import { auth, db } from '../../../lib/firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 
 const usersToCreate = [
-  { full_name: 'Admin Sistem', email: 'admin2@test.edu.my', role: 'admin', title: 'Admin' },
+  { full_name: 'Admin Sistem', email: 'admin@test.edu.my', role: 'admin', title: 'Admin' },
+  { full_name: 'Admin Sistem 2', email: 'admin2@test.edu.my', role: 'admin', title: 'Admin' },
   { full_name: 'Cikgu Aminah binti Ahmad', email: 'cikgu1@test.edu.my', role: 'teacher', title: 'Guru' },
   { full_name: 'Cikgu Hafiz bin Ibrahim', email: 'cikgu2@test.edu.my', role: 'teacher', title: 'Guru' },
   { full_name: 'Cikgu Siti Rahmah binti Yusof', email: 'cikgu3@test.edu.my', role: 'teacher', title: 'Guru' },
@@ -19,12 +21,12 @@ export async function GET() {
     try {
       let user;
       try {
-        const userCredential = await createUserWithEmailAndPassword(auth, u.email, 'password123');
+        const userCredential = await createUserWithEmailAndPassword(auth, u.email, 'Test@1234');
         user = userCredential.user;
       } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
           // If auth exists, login to get their UID to recreate their Firestore profile
-          const cred = await signInWithEmailAndPassword(auth, u.email, 'password123');
+          const cred = await signInWithEmailAndPassword(auth, u.email, 'Test@1234');
           user = cred.user;
         } else {
           throw error;
